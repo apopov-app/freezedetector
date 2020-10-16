@@ -1,0 +1,38 @@
+freezedetector - app problem detector
+
+This library detect 3 problem in your code:
+ - TestTimeoutDetect - The handler is not executed within the specified timeout
+ - TestLossOfControlDetect - Lost Goroutine. First-order function completed earlier than descendant function
+ - TestGracefulCloseDetect - The function was not completed to the end, exit only by defer
+
+Example:
+------ Main ------
+detector := freezedetector.NewDetector(func(problem ProblemI) {
+    // You can create slice or channel
+    // problem.When() - When the problem occurred
+    // problem.Where() - Where function
+   	// problem.Body() - Text
+   	// problem.Request() - Current request
+   	// problem.Request().Where() - Where request
+})
+
+------ Handler ------
+func handler(w http.ResponseWriter, r *http.Request) {
+   myRequest := detector.NewRequest("HANDLER NAME", -1, freezedetector.Whereami())
+   defer myRequest.Close()
+
+   // Handler code
+   SubFunctionA(myRequest)
+   ...
+   // Handler code
+
+   myRequest.GracefulClose()
+}
+
+------- SubFunction -----
+func SubFunctionA(myRequest freezedetector.RequestI) {
+    fd := myRequest.NewFunc("SubFunctionA", freezedetector.Whereami())
+    defer fd.Close()
+
+    // SubFunction code
+}
