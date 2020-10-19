@@ -4,9 +4,12 @@ import (
 	"github.com/jimlawless/whereami"
 	"strconv"
 	"time"
+	"sync"
 )
 
 type requestFunc struct {
+	mu *sync.Mutex
+
 	request *request
 	time time.Time
 	where whereamiType
@@ -15,10 +18,14 @@ type requestFunc struct {
 }
 
 func (r *requestFunc) Close()  {
+	r.mu.Lock()
 	r.close = true
+	r.mu.Unlock()
 }
 
 type request struct {
+	mu *sync.RWMutex
+
 	*freezedetector
 	requestId string
 	close bool
@@ -28,6 +35,9 @@ type request struct {
 }
 
 func (freezRequest *request) Callstack() (callstack []string) {
+	freezRequest.mu.RLock()
+	defer freezRequest.mu.RUnlock()
+
 	for _, fn := range freezRequest.callstack {
 		callstack = append(callstack, fn.time.String() + " - " + fn.funcName + "("+string(fn.where)+") close: " + strconv.FormatBool(fn.close))
 	}
@@ -35,24 +45,48 @@ func (freezRequest *request) Callstack() (callstack []string) {
 }
 
 func (freezRequest *request) NewFunc(name string, where whereamiType) *requestFunc  {
+	freezRequest.mu.RLock()
+	isClose := freezRequest.close
+	freezRequest.mu.RUnlock()
+
+	if isClose {
+		freezRequest.problemCallback(&LossOfControlProblem{
+			baseProblem: baseProblem{
+				time:      time.Now(),
+				where: where,
+				request: freezRequest,
+			},
+			funcName: name,
+		})
+	}
+
 	rFunc := &requestFunc{
+		mu: &sync.Mutex{},
 		request: freezRequest,
 		funcName: name,
 		time: time.Now(),
 		where: where,
 	}
+	freezRequest.mu.Lock()
 	freezRequest.callstack = append(freezRequest.callstack, rFunc)
-
+	freezRequest.mu.Unlock()
 	return rFunc
 }
 
 func (freezRequest *request) GracefulClose() {
+	freezRequest.mu.Lock()
 	freezRequest.gracefulClose = true
+	freezRequest.mu.Unlock()
 }
 
 func (freezRequest *request) Close() {
 	// Detect "Loss Of Control"
-	for _, fn := range freezRequest.callstack {
+	freezRequest.mu.RLock()
+	callstack := freezRequest.callstack
+	isGracefulClose := freezRequest.gracefulClose
+	freezRequest.mu.RUnlock()
+
+	for _, fn := range callstack {
 		if !fn.close {
 			freezRequest.problemCallback(&LossOfControlProblem{
 				baseProblem: baseProblem{
@@ -65,7 +99,7 @@ func (freezRequest *request) Close() {
 		}
 	}
 
-	if !freezRequest.gracefulClose {
+	if !isGracefulClose {
 		freezRequest.problemCallback(&RequestNotGracefulClose{
 			baseProblem: baseProblem{
 				time:      time.Now(),
@@ -74,7 +108,10 @@ func (freezRequest *request) Close() {
 			},
 		})
 	}
+
+	freezRequest.mu.Lock()
 	freezRequest.close = true
+	freezRequest.mu.Unlock()
 }
 
 type freezedetector struct {
@@ -83,6 +120,7 @@ type freezedetector struct {
 
 func (freez *freezedetector) NewRequest(id string, timeout time.Duration, where whereamiType) RequestI {
 	fd := &request{
+		mu: &sync.RWMutex{},
 		freezedetector: freez,
 		requestId: id,
 		where: where,
@@ -91,10 +129,21 @@ func (freez *freezedetector) NewRequest(id string, timeout time.Duration, where 
 		timer := time.NewTimer(timeout)
 		go func() {
 			<-timer.C
+			fd.mu.RLock()
+			defer fd.mu.RUnlock()
+
 			if !fd.close {
+				var where whereamiType
+				calltraceLen := len(fd.callstack)
+				if calltraceLen > 0 {
+					where = fd.callstack[len(fd.callstack)-1].where
+				} else {
+					where = fd.where
+				}
+
 				freez.problemCallback(&RequestTimeoutProblem{
 					baseProblem: baseProblem{
-						where: fd.where,
+						where:     where,
 						time:      time.Now(),
 						request: fd,
 					},
