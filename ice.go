@@ -12,7 +12,7 @@ type requestFunc struct {
 
 	request *request
 	time time.Time
-	where whereamiType
+	where WhereamiType
 	funcName string
 	close bool
 }
@@ -30,7 +30,7 @@ type request struct {
 	requestId string
 	close bool
 	gracefulClose bool
-	where whereamiType
+	where WhereamiType
 	callstack []*requestFunc
 }
 
@@ -44,7 +44,7 @@ func (freezRequest *request) Callstack() (callstack []string) {
 	return callstack
 }
 
-func (freezRequest *request) NewFunc(name string, where whereamiType) *requestFunc  {
+func (freezRequest *request) NewFunc(name string, where WhereamiType) RequestFuncI  {
 	freezRequest.mu.RLock()
 	isClose := freezRequest.close
 	freezRequest.mu.RUnlock()
@@ -118,7 +118,7 @@ type freezedetector struct {
 	problemCallback func(problem ProblemI)
 }
 
-func (freez *freezedetector) NewRequest(id string, timeout time.Duration, where whereamiType) RequestI {
+func (freez *freezedetector) NewRequest(id string, timeout time.Duration, where WhereamiType) RequestI {
 	fd := &request{
 		mu: &sync.RWMutex{},
 		freezedetector: freez,
@@ -133,7 +133,7 @@ func (freez *freezedetector) NewRequest(id string, timeout time.Duration, where 
 			defer fd.mu.RUnlock()
 
 			if !fd.close {
-				var where whereamiType
+				var where WhereamiType
 				calltraceLen := len(fd.callstack)
 				if calltraceLen > 0 {
 					where = fd.callstack[len(fd.callstack)-1].where
@@ -163,7 +163,7 @@ func NewDetector(callback func(problem ProblemI)) *freezedetector {
 	}
 }
 
-type whereamiType string
-func Whereami() whereamiType {
-	return whereamiType(whereami.WhereAmI(2))
+type WhereamiType string
+func Whereami() WhereamiType {
+	return WhereamiType(whereami.WhereAmI(2))
 }

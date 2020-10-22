@@ -6,7 +6,7 @@ import (
 
 type baseProblem struct {
 	time time.Time
-	where whereamiType
+	where WhereamiType
 	request *request
 }
 
@@ -14,7 +14,7 @@ func (problem *baseProblem) Where() string {
 	return string(problem.where)
 }
 
-func (problem *baseProblem) Request() *request {
+func (problem *baseProblem) Request() RequestI {
 	return problem.request
 }
 
